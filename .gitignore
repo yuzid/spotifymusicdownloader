@@ -1,0 +1,53 @@
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ─── Virtual Environment ──────────────────────────────────────────────────────
+venv/
+env/
+.env/
+.venv/
+
+# ─── Environment Variables / Secrets ─────────────────────────────────────────
+.env
+!.env.example
+
+# ─── App Config (contains Spotify API credentials) ───────────────────────────
+config.json
+
+# ─── Downloads ───────────────────────────────────────────────────────────────
+*.mp3
+*.flac
+*.ogg
+*.opus
+*.m4a
+*.wav
+*.spotdl
+
+# ─── Logs & Temp ─────────────────────────────────────────────────────────────
+*.log
+/tmp/
+
+# ─── OS ──────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── IDE / Editors ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── pytest / coverage ───────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
