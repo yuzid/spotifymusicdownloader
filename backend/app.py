@@ -11,14 +11,14 @@ import os
 import re
 import json
 import uuid
-import socket
 import urllib.request
 import urllib.parse
 import threading
 import subprocess
+import zipfile
 from pathlib import Path
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 
 # Load .env from project root (if it exists)
@@ -27,16 +27,12 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 CORS(app)
 
-# ─── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR    = Path(__file__).parent.parent
 CONFIG_FILE = BASE_DIR / "config.json"
 DEFAULT_DOWNLOAD_DIR = str(Path.home() / "Music" / "Spotify Downloads")
 
-# ─── In-memory job tracking ───────────────────────────────────────────────────
 jobs: dict = {}
 
-
-# ─── Config helpers ───────────────────────────────────────────────────────────
 
 def load_config() -> dict:
     if CONFIG_FILE.exists():
@@ -90,8 +86,6 @@ def spotdl_base_cmd() -> list[str]:
         cmd += ["--client-id", cid, "--client-secret", csec]
     return cmd
 
-
-# ─── Routes ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -155,6 +149,11 @@ def fetch_info():
         return jsonify({"error": str(e)}), 500
 
 
+def safe_filename(name: str) -> str:
+    cleaned = re.sub(r'[\\/*?:"<>|]', "", name).strip()
+    return cleaned or "spotify_download"
+
+
 # ── Download ──────────────────────────────────────────────────────────────────
 
 @app.route("/api/download", methods=["POST"])
@@ -164,32 +163,54 @@ def start_download():
     output_dir = data.get("output_dir", DEFAULT_DOWNLOAD_DIR)
     track_name = data.get("track_name", "")
     fmt        = data.get("format", "mp3")
+    as_zip     = bool(data.get("as_zip", False))
 
     if not urls:
         return jsonify({"error": "No URLs provided"}), 400
 
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
-        "id":         job_id,
-        "status":     "queued",
-        "progress":   0,
-        "total":      len(urls),
-        "done":       0,
-        "error":      None,
-        "tracks":     [],
-        "output_dir": output_dir,
-        "track_name": track_name,
-        "cancelled":  False,
-        "log":        [],
+        "id":               job_id,
+        "status":           "queued",
+        "progress":         0,
+        "total":            len(urls),
+        "done":             0,
+        "error":            None,
+        "tracks":           [],
+        "output_dir":       output_dir,
+        "track_name":       track_name,
+        "as_zip":           as_zip,
+        "zip_name":         None,
+        "zip_path":         None,
+        "zip_ready":        False,
+        "zip_download_url": None,
+        "cancelled":        False,
+        "log":              [],
     }
 
     thread = threading.Thread(
         target=run_download,
-        args=(job_id, urls, output_dir, fmt),
+        args=(job_id, urls, output_dir, fmt, as_zip, track_name),
         daemon=True,
     )
     thread.start()
     return jsonify({"job_id": job_id})
+
+
+@app.route("/api/job/<job_id>/download-zip", methods=["GET"])
+def download_job_zip(job_id):
+    job = jobs.get(job_id)
+    if not job or not job.get("zip_path"):
+        return jsonify({"error": "ZIP file not found or not ready"}), 404
+    zip_path = Path(job["zip_path"])
+    if not zip_path.exists():
+        return jsonify({"error": "ZIP file does not exist on disk"}), 404
+    return send_file(
+        zip_path,
+        as_attachment=True,
+        download_name=job.get("zip_name", "download.zip"),
+        mimetype="application/zip",
+    )
 
 
 @app.route("/api/job/<job_id>", methods=["GET"])
@@ -245,8 +266,6 @@ def save_settings():
     save_config(patch)
     return jsonify({"ok": True})
 
-
-# ─── Helpers ─────────────────────────────────────────────────────────────────
 
 SPOTIFY_URL_PATTERNS = {
     "track":    r"open\.spotify\.com/track/([A-Za-z0-9]+)",
@@ -344,11 +363,23 @@ def scrape_spotify_entity(url: str, url_type: str) -> dict | None:
         track_id = uri.split(":")[-1] if uri else ""
         track_url = f"https://open.spotify.com/track/{track_id}" if track_id else url
         subtitle = (item.get("subtitle") or "").replace("\xa0", " ")
+
+        # For playlists: subtitle may be "Artist · Album" or "Artist · Year"
+        # For albums: artist name only. For tracks: artist name.
+        artists = subtitle
+        album_name = ""
+        if kind == "album":
+            album_name = title
+        elif kind == "playlist" and " · " in subtitle:
+            parts = subtitle.split(" · ", 1)
+            artists = parts[0].strip()
+            album_name = parts[1].strip() if len(parts) > 1 else ""
+
         formatted_tracks.append({
             "name": item.get("title", "Unknown"),
-            "artists": subtitle,
-            "album": title if kind == "album" else "",
-            "duration": int(item.get("duration", 0) / 1000),
+            "artists": artists,
+            "album": album_name,
+            "duration": int(item.get("duration", 0)),  # keep raw ms for frontend formatDuration()
             "cover": cover,
             "url": track_url,
             "explicit": item.get("isExplicit", False),
@@ -356,12 +387,18 @@ def scrape_spotify_entity(url: str, url_type: str) -> dict | None:
 
     # For single tracks if trackList was empty
     if not formatted_tracks and kind == "track":
-        subtitle = (entity.get("subtitle") or "").replace("\xa0", " ")
+        # entity.artists is a list of {name, uri} objects for single tracks
+        raw_artists = entity.get("artists") or []
+        if isinstance(raw_artists, list):
+            artists_str = ", ".join(a["name"] for a in raw_artists if a.get("name"))
+        else:
+            artists_str = (entity.get("subtitle") or "").replace("\xa0", " ")
+
         formatted_tracks.append({
             "name": title,
-            "artists": subtitle,
+            "artists": artists_str,
             "album": "",
-            "duration": int(entity.get("duration", 0) / 1000),
+            "duration": int(entity.get("duration", 0)),  # keep raw ms for frontend formatDuration()
             "cover": cover,
             "url": url,
             "explicit": entity.get("isExplicit", False),
@@ -380,17 +417,94 @@ def scrape_spotify_entity(url: str, url_type: str) -> dict | None:
     }
 
 
+def fetch_via_spotipy(url: str, url_type: str, cid: str, csec: str) -> dict | None:
+    """Fetch all tracks using official Spotipy with pagination if credentials have API access."""
+    try:
+        import spotipy
+        from spotipy.oauth2 import SpotifyClientCredentials
+        sp = spotipy.Spotify(
+            auth_manager=SpotifyClientCredentials(client_id=cid, client_secret=csec),
+            requests_timeout=10,
+        )
+        match = re.search(r"open\.spotify\.com/(track|album|playlist)/([a-zA-Z0-9]+)", url)
+        if not match:
+            return None
+        kind, item_id = match.group(1), match.group(2)
+        if kind == "playlist":
+            pl = sp.playlist(item_id)
+            title = pl.get("name", "Spotify Playlist")
+            images = pl.get("images") or []
+            cover = images[0].get("url", "") if images else ""
+
+            tracks = []
+            results = sp.playlist_items(item_id, limit=100)
+            while results:
+                for it in results.get("items", []):
+                    tr = it.get("track")
+                    if not tr:
+                        continue
+                    artists = ", ".join(a["name"] for a in tr.get("artists", []))
+                    album_obj = tr.get("album") or {}
+                    album_name = album_obj.get("name", "")
+                    img_list = album_obj.get("images") or []
+                    tr_cover = img_list[0].get("url", "") if img_list else cover
+                    tr_url = tr.get("external_urls", {}).get("spotify") or f"https://open.spotify.com/track/{tr.get('id')}"
+                    tracks.append({
+                        "name": tr.get("name", "Unknown"),
+                        "artists": artists,
+                        "album": album_name,
+                        "duration": tr.get("duration_ms", 0),
+                        "cover": tr_cover,
+                        "url": tr_url,
+                        "explicit": tr.get("isExplicit", tr.get("explicit", False)),
+                    })
+                if results.get("next"):
+                    results = sp.next(results)
+                else:
+                    break
+
+            if tracks:
+                return {
+                    "type": "playlist",
+                    "title": title,
+                    "cover": cover,
+                    "track_count": len(tracks),
+                    "tracks": tracks,
+                    "source_url": url,
+                }
+    except Exception:
+        pass
+    return None
+
+
 def fetch_spotify_info(url: str, url_type: str) -> dict:
-    # 1. Primary: fast scrape directly from Spotify Embed data (< 1s, extracts all individual songs)
+    # 0. If user has Spotify credentials configured, try official API first to get unlimited tracks
+    cid, csec = get_credentials()
+    if cid and csec and url_type == "playlist":
+        sp_info = fetch_via_spotipy(url, url_type, cid, csec)
+        if sp_info and sp_info.get("tracks"):
+            return sp_info
+
+    # 1. Primary: fast scrape directly from Spotify Embed data (< 1s, extracts individual songs)
     info = scrape_spotify_entity(url, url_type)
+
+    # Always fetch oEmbed to get thumbnail for single tracks (embed data has no coverArt)
+    oembed = fetch_spotify_oembed(url)
+    real_cover = oembed.get("thumbnail_url", "") if oembed else ""
+    real_title = oembed.get("title", "") if oembed else ""
+
     if info and info.get("tracks"):
+        # Enrich missing cover art (single tracks have no coverArt in embed data)
+        if not info.get("cover") and real_cover:
+            info["cover"] = real_cover
+            for t in info["tracks"]:
+                if not t.get("cover"):
+                    t["cover"] = real_cover
+        if url_type == "playlist" and len(info["tracks"]) >= 50:
+            info["has_more_notice"] = True
         return info
 
     # 2. Secondary: oEmbed for single tracks
-    oembed = fetch_spotify_oembed(url)
-    real_title = oembed.get("title", "") if oembed else ""
-    real_cover = oembed.get("thumbnail_url", "") if oembed else ""
-
     if url_type == "track" and real_title:
         return {
             "type": "track",
@@ -411,7 +525,6 @@ def fetch_spotify_info(url: str, url_type: str) -> dict:
 
     # 3. Fallback: use spotdl save
     spotdl = get_spotdl_path()
-    cid, csec = get_credentials()
     save_file = f"/tmp/spotdl_info_{uuid.uuid4().hex}.spotdl"
 
     cmd = [spotdl, "save", url, "--save-file", save_file]
@@ -507,11 +620,18 @@ def format_track_info(tracks: list, url: str, url_type: str, real_title: str = "
     }
 
 
-def run_download(job_id: str, urls: list, output_dir: str, fmt: str = "mp3"):
+def run_download(job_id: str, urls: list, output_dir: str, fmt: str = "mp3", as_zip: bool = False, track_name: str = ""):
     job = jobs[job_id]
     job["status"] = "running"
     cid, csec = get_credentials()
     os.makedirs(output_dir, exist_ok=True)
+
+    base_name = safe_filename(track_name or "spotify_tracks")
+    if as_zip:
+        download_target = Path(output_dir) / f"{base_name}_{job_id[:6]}"
+        download_target.mkdir(parents=True, exist_ok=True)
+    else:
+        download_target = Path(output_dir)
 
     for i, url in enumerate(urls):
         if job.get("cancelled"):
@@ -522,7 +642,7 @@ def run_download(job_id: str, urls: list, output_dir: str, fmt: str = "mp3"):
 
         cmd = [
             get_spotdl_path(), "download", url,
-            "--output",  output_dir,
+            "--output",  str(download_target),
             "--format",  fmt,
             "--bitrate", "320k",
             "--threads", "4",
@@ -569,6 +689,35 @@ def run_download(job_id: str, urls: list, output_dir: str, fmt: str = "mp3"):
         job["tracks"].append(track_result)
         job["done"]     = i + 1
         job["progress"] = round((i + 1) / len(urls) * 100)
+
+    # If as_zip, compress all audio files into a .zip archive
+    if as_zip and not job.get("cancelled"):
+        job["status"] = "zipping"
+        try:
+            zip_filename = f"{base_name}.zip"
+            zip_path = Path(output_dir) / zip_filename
+            if zip_path.exists():
+                zip_filename = f"{base_name}_{job_id[:6]}.zip"
+                zip_path = Path(output_dir) / zip_filename
+
+            audio_files = []
+            for ext in [fmt, "mp3", "m4a", "flac", "opus", "ogg", "wav"]:
+                audio_files.extend(list(download_target.glob(f"*.{ext}")))
+            seen = set()
+            unique_files = [f for f in audio_files if not (f.name in seen or seen.add(f.name))]
+
+            if unique_files:
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for f in unique_files:
+                        zf.write(f, arcname=f.name)
+                job["zip_name"] = zip_filename
+                job["zip_path"] = str(zip_path)
+                job["zip_ready"] = True
+                job["zip_download_url"] = f"/api/job/{job_id}/download-zip"
+            else:
+                job["zip_error"] = "No audio files found to package."
+        except Exception as ze:
+            job["zip_error"] = str(ze)
 
     errors = [t for t in job["tracks"] if t["status"] == "error"]
     job["status"] = "done_with_errors" if errors else "done"

@@ -9,9 +9,11 @@ const API = "/api";
 let currentInfo = null;       // fetched track/playlist info
 let selectedTracks = new Set(); // indices of selected tracks
 let activeJobs = {};           // jobId -> intervalId (polling)
+let pendingDownload = null;    // for download choice modal
 let settings = {
   outputDir: "",
   format: "mp3",
+  multiDownloadMode: "ask",    // "ask" | "direct" | "zip"
 };
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
@@ -27,6 +29,7 @@ const trackTypeBadge   = document.getElementById("track-type-chip");
 const trackTitle       = document.getElementById("track-title");
 const trackCount       = document.getElementById("track-count");
 const trackList        = document.getElementById("track-list");
+const limitBanner      = document.getElementById("limit-banner");
 const btnDownloadAll   = document.getElementById("btn-download-all");
 const btnSelectAll     = document.getElementById("btn-select-all");
 const btnDlSelected    = document.getElementById("btn-download-selected");
@@ -38,8 +41,20 @@ const btnSettings      = document.getElementById("btn-settings");
 const closeSettings    = document.getElementById("close-settings");
 const outputDirInput   = document.getElementById("output-dir-input");
 const formatSelect     = document.getElementById("format-select");
+const multiModeSelect  = document.getElementById("multi-mode-select");
 const saveSettingsBtn  = document.getElementById("save-settings");
 const btnHistory       = document.getElementById("btn-history");
+
+// Download Choice Modal DOM refs
+const dlChoiceModal     = document.getElementById("download-choice-modal");
+const closeDlChoice     = document.getElementById("close-dl-choice");
+const btnCancelDlChoice = document.getElementById("btn-cancel-dl-choice");
+const btnConfirmDl      = document.getElementById("btn-confirm-dl");
+const dlChoiceCount     = document.getElementById("dl-choice-count");
+const dlChoiceName      = document.getElementById("dl-choice-name");
+const cardModeDirect    = document.getElementById("card-mode-direct");
+const cardModeZip       = document.getElementById("card-mode-zip");
+const chkRememberChoice = document.getElementById("chk-remember-choice");
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async function init() {
@@ -77,7 +92,7 @@ btnPaste.addEventListener("click", async () => {
 btnDownloadAll.addEventListener("click", () => {
   if (!currentInfo) return;
   const urls = currentInfo.tracks.map((t) => t.url);
-  startDownload(urls, currentInfo.title);
+  promptOrStartMultipleDownload(urls, currentInfo.title, btnDownloadAll);
 });
 
 btnSelectAll.addEventListener("click", () => {
@@ -96,8 +111,74 @@ btnSelectAll.addEventListener("click", () => {
 btnDlSelected.addEventListener("click", () => {
   if (!currentInfo || selectedTracks.size === 0) return;
   const urls = [...selectedTracks].map((i) => currentInfo.tracks[i].url);
-  startDownload(urls, `${selectedTracks.size} selected tracks`);
+  const label = `${selectedTracks.size} selected track${selectedTracks.size > 1 ? "s" : ""}`;
+  promptOrStartMultipleDownload(urls, label, btnDlSelected);
 });
+
+// Download Choice Modal listeners
+if (cardModeDirect && cardModeZip) {
+  cardModeDirect.addEventListener("click", () => {
+    cardModeDirect.classList.add("active");
+    cardModeZip.classList.remove("active");
+    const r = cardModeDirect.querySelector('input[type="radio"]');
+    if (r) r.checked = true;
+  });
+  cardModeZip.addEventListener("click", () => {
+    cardModeZip.classList.add("active");
+    cardModeDirect.classList.remove("active");
+    const r = cardModeZip.querySelector('input[type="radio"]');
+    if (r) r.checked = true;
+  });
+}
+
+if (closeDlChoice) closeDlChoice.addEventListener("click", () => { dlChoiceModal.style.display = "none"; pendingDownload = null; });
+if (btnCancelDlChoice) btnCancelDlChoice.addEventListener("click", () => { dlChoiceModal.style.display = "none"; pendingDownload = null; });
+if (dlChoiceModal) dlChoiceModal.addEventListener("click", (e) => { if (e.target === dlChoiceModal) { dlChoiceModal.style.display = "none"; pendingDownload = null; } });
+
+if (btnConfirmDl) {
+  btnConfirmDl.addEventListener("click", () => {
+    if (!pendingDownload) return;
+    const asZip = cardModeZip?.classList.contains("active") ||
+      document.querySelector('input[name="download_mode_choice"]:checked')?.value === "zip";
+
+    if (chkRememberChoice && chkRememberChoice.checked) {
+      settings.multiDownloadMode = asZip ? "zip" : "direct";
+      if (multiModeSelect) multiModeSelect.value = settings.multiDownloadMode;
+      saveSettings();
+    }
+
+    dlChoiceModal.style.display = "none";
+    const { urls, name, triggerBtn } = pendingDownload;
+    pendingDownload = null;
+    startDownload(urls, name, triggerBtn, asZip);
+  });
+}
+
+function promptOrStartMultipleDownload(urls, name, triggerBtn) {
+  if (urls.length <= 1) {
+    startDownload(urls, name, triggerBtn, false);
+    return;
+  }
+
+  const mode = settings.multiDownloadMode || "ask";
+  if (mode === "direct") {
+    startDownload(urls, name, triggerBtn, false);
+  } else if (mode === "zip") {
+    startDownload(urls, name, triggerBtn, true);
+  } else {
+    // Show interactive choice modal
+    pendingDownload = { urls, name, triggerBtn };
+    if (dlChoiceCount) dlChoiceCount.textContent = urls.length;
+    if (dlChoiceName) dlChoiceName.textContent = name;
+    if (chkRememberChoice) chkRememberChoice.checked = false;
+    // Default card highlight to direct
+    if (cardModeDirect) cardModeDirect.classList.add("active");
+    if (cardModeZip) cardModeZip.classList.remove("active");
+    const rDirect = cardModeDirect?.querySelector('input[type="radio"]');
+    if (rDirect) rDirect.checked = true;
+    if (dlChoiceModal) dlChoiceModal.style.display = "flex";
+  }
+}
 
 // Settings
 btnSettings.addEventListener("click", () => { settingsModal.style.display = "flex"; });
@@ -106,6 +187,7 @@ settingsModal.addEventListener("click", (e) => { if (e.target === settingsModal)
 saveSettingsBtn.addEventListener("click", () => {
   settings.outputDir = outputDirInput.value.trim() || settings.outputDir;
   settings.format = formatSelect.value;
+  if (multiModeSelect) settings.multiDownloadMode = multiModeSelect.value;
   saveSettings();
   settingsModal.style.display = "none";
   showToast("Settings saved");
@@ -205,6 +287,11 @@ function renderTrackInfo(info) {
     trackList.appendChild(row);
   });
 
+  // Show limit banner if more tracks exist beyond Spotify embed limit
+  if (limitBanner) {
+    limitBanner.style.display = info.has_more_notice ? "flex" : "none";
+  }
+
   trackInfoCard.style.display = "block";
 
   // Show download all if multiple tracks
@@ -233,6 +320,7 @@ async function startSingleTrackDownload(url, name, btn) {
         urls: [url],
         output_dir: settings.outputDir,
         track_name: name,
+        as_zip: false,
       }),
     });
     const data = await res.json();
@@ -240,7 +328,7 @@ async function startSingleTrackDownload(url, name, btn) {
 
     pollJobForButton(data.job_id, btn, name);
     showJobsPanel();
-    addJobCard(data.job_id, name, 1);
+    addJobCard(data.job_id, name, 1, false);
   } catch (e) {
     btn.classList.remove("downloading");
     btn.classList.add("error");
@@ -248,7 +336,12 @@ async function startSingleTrackDownload(url, name, btn) {
   }
 }
 
-async function startDownload(urls, name) {
+async function startDownload(urls, name, triggerBtn = null, asZip = false) {
+  if (triggerBtn) {
+    triggerBtn.disabled = true;
+    triggerBtn._origHTML = triggerBtn.innerHTML;
+    triggerBtn.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px"></div> Starting…`;
+  }
   try {
     const res = await fetch(`${API}/download`, {
       method: "POST",
@@ -257,17 +350,54 @@ async function startDownload(urls, name) {
         urls,
         output_dir: settings.outputDir,
         track_name: name,
+        as_zip: asZip,
       }),
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
     showJobsPanel();
-    addJobCard(data.job_id, name, urls.length);
+    addJobCard(data.job_id, name, urls.length, asZip);
+    pollJobForTriggerBtn(data.job_id, triggerBtn);
     pollJob(data.job_id);
   } catch (e) {
     showError("Failed to start download: " + e.message);
+    if (triggerBtn) {
+      triggerBtn.disabled = false;
+      triggerBtn.innerHTML = triggerBtn._origHTML || "Download";
+    }
   }
+}
+
+function pollJobForTriggerBtn(jobId, btn) {
+  if (!btn) return;
+  const interval = setInterval(async () => {
+    try {
+      const res = await fetch(`${API}/job/${jobId}`);
+      const job = await res.json();
+      if (["done", "done_with_errors"].includes(job.status)) {
+        clearInterval(interval);
+        btn.disabled = false;
+        btn.innerHTML = `<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg> Done`;
+        setTimeout(() => {
+          btn.innerHTML = btn._origHTML || "Download";
+        }, 3000);
+      } else if (["cancelled", "error"].includes(job.status)) {
+        clearInterval(interval);
+        btn.disabled = false;
+        btn.innerHTML = btn._origHTML || "Download";
+      } else if (job.status === "zipping") {
+        btn.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px"></div> Zipping…`;
+      } else {
+        const pct = job.progress || 0;
+        btn.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px"></div> ${pct > 0 ? pct + "% — " : ""}Downloading`;
+      }
+    } catch (e) {
+      clearInterval(interval);
+      btn.disabled = false;
+      btn.innerHTML = btn._origHTML || "Download";
+    }
+  }, 1500);
 }
 
 // ── Job Polling ───────────────────────────────────────────────────────────────
@@ -321,7 +451,7 @@ async function loadJobHistory() {
     const jobs = await res.json();
     jobs.forEach((job) => {
       if (!document.getElementById(`job-${job.id}`)) {
-        addJobCard(job.id, job.track_name || "Download", job.total);
+        addJobCard(job.id, job.track_name || "Download", job.total, job.as_zip);
       }
       updateJobCard(job);
     });
@@ -333,7 +463,7 @@ function showJobsPanel() {
   jobsPanel.style.display = "block";
 }
 
-function addJobCard(jobId, name, total) {
+function addJobCard(jobId, name, total, asZip = false) {
   if (document.getElementById(`job-${jobId}`)) return;
 
   const card = document.createElement("div");
@@ -341,7 +471,10 @@ function addJobCard(jobId, name, total) {
   card.id = `job-${jobId}`;
   card.innerHTML = `
     <div class="job-top">
-      <span class="job-name">${escHtml(name)}</span>
+      <span class="job-name">
+        ${escHtml(name)}
+        ${asZip ? '<span class="zip-tag" style="margin-left:0.5rem;font-size:0.75rem;">📦 ZIP</span>' : ''}
+      </span>
       <span class="job-status-chip queued" id="jstatus-${jobId}">Queued</span>
     </div>
     <div class="progress-bar-wrap">
@@ -351,6 +484,7 @@ function addJobCard(jobId, name, total) {
       <span id="jmeta-${jobId}">0 / ${total} tracks</span>
       <button class="btn-cancel-job" onclick="cancelJob('${jobId}')">Cancel</button>
     </div>
+    <div id="job-actions-${jobId}"></div>
   `;
   jobsList.prepend(card);
 }
@@ -359,11 +493,13 @@ function updateJobCard(job) {
   const statusEl = document.getElementById(`jstatus-${job.id}`);
   const progressEl = document.getElementById(`jprogress-${job.id}`);
   const metaEl = document.getElementById(`jmeta-${job.id}`);
+  const actionsEl = document.getElementById(`job-actions-${job.id}`);
 
   if (!statusEl) return;
 
   const statusLabels = {
     queued: "Queued", running: "Downloading",
+    zipping: "Zipping... 📦",
     done: "Done ✓", done_with_errors: "Done (errors)",
     cancelled: "Cancelled", error: "Error",
   };
@@ -371,7 +507,27 @@ function updateJobCard(job) {
   statusEl.textContent = statusLabels[job.status] || job.status;
   statusEl.className = `job-status-chip ${job.status}`;
   progressEl.style.width = (job.progress || 0) + "%";
-  metaEl.innerHTML = `${job.done || 0} / ${job.total} tracks — saved to <em>${job.output_dir || ""}</em>`;
+
+  if (job.as_zip) {
+    metaEl.innerHTML = `${job.done || 0} / ${job.total} tracks — 📦 ZIP Mode`;
+  } else {
+    metaEl.innerHTML = `${job.done || 0} / ${job.total} tracks — saved to <em>${job.output_dir || ""}</em>`;
+  }
+
+  // If ZIP is ready and not yet rendered, show download button
+  if (actionsEl && job.zip_ready && job.zip_download_url) {
+    if (!document.getElementById(`job-zip-box-${job.id}`)) {
+      actionsEl.innerHTML = `
+        <div class="job-zip-box" id="job-zip-box-${job.id}">
+          <span class="zip-tag">📦 ${escHtml(job.zip_name || "archive.zip")}</span>
+          <a href="${job.zip_download_url}" class="btn-job-zip" download="${escHtml(job.zip_name || 'download.zip')}">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+            Download .ZIP
+          </a>
+        </div>
+      `;
+    }
+  }
 
   // Hide cancel button when finished
   if (["done", "done_with_errors", "cancelled", "error"].includes(job.status)) {
@@ -404,6 +560,7 @@ function loadSettings() {
     settings = { ...settings, ...saved };
     outputDirInput.value = settings.outputDir || "";
     formatSelect.value = settings.format || "mp3";
+    if (multiModeSelect) multiModeSelect.value = settings.multiDownloadMode || "ask";
   } catch (e) {}
 }
 

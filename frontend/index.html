@@ -115,6 +115,15 @@
         </div>
       </div>
 
+      <!-- 100-track limit banner -->
+      <div class="limit-banner" id="limit-banner" style="display:none">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+        <div class="limit-text">
+          <strong>Showing first 100 tracks</strong>
+          <span>Spotify's public embed limits playlist previews to 100 tracks. Configure Spotify credentials in Settings to fetch unlimited songs.</span>
+        </div>
+      </div>
+
       <!-- Track list -->
       <div class="track-list-header">
         <span>#</span>
@@ -135,6 +144,60 @@
       <div class="jobs-list" id="jobs-list"></div>
     </section>
 
+  </div>
+
+  <!-- ── Download Choice Modal ── -->
+  <div class="modal-backdrop" id="download-choice-modal" style="display:none">
+    <div class="modal download-choice-modal">
+      <div class="modal-header">
+        <h3>Choose Download Format</h3>
+        <button class="modal-close" id="close-dl-choice">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="dl-choice-desc">
+          You are downloading <strong id="dl-choice-count">0</strong> tracks (<span id="dl-choice-name"></span>). How would you like them delivered?
+        </p>
+
+        <div class="dl-options-grid">
+          <label class="dl-option-card active" id="card-mode-direct">
+            <input type="radio" name="download_mode_choice" value="direct" checked />
+            <div class="dl-option-content">
+              <div class="dl-option-header">
+                <span class="dl-option-title">📂 Direct Audio Files</span>
+                <span class="dl-badge">Folder</span>
+              </div>
+              <p class="dl-option-sub">Save each song as an individual .mp3 file directly into your output directory.</p>
+            </div>
+          </label>
+
+          <label class="dl-option-card" id="card-mode-zip">
+            <input type="radio" name="download_mode_choice" value="zip" />
+            <div class="dl-option-content">
+              <div class="dl-option-header">
+                <span class="dl-option-title">📦 ZIP Archive</span>
+                <span class="dl-badge zip">Browser Download</span>
+              </div>
+              <p class="dl-option-sub">Compress all tracks into a single .zip file with a 1-click browser download button when done.</p>
+            </div>
+          </label>
+        </div>
+
+        <div class="dl-remember-wrap">
+          <label class="checkbox-label">
+            <input type="checkbox" id="chk-remember-choice" />
+            <span>Remember this choice (can be changed in Settings)</span>
+          </label>
+        </div>
+
+        <div class="dl-choice-actions">
+          <button class="btn-ghost" id="btn-cancel-dl-choice">Cancel</button>
+          <button class="btn-primary" id="btn-confirm-dl">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+            Start Download
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ── Settings Modal ── -->
@@ -158,6 +221,15 @@
           <option value="m4a">M4A — AAC</option>
           <option value="opus">Opus</option>
         </select>
+
+        <label class="setting-label" style="margin-top:1.5rem">Multiple Tracks Download Format</label>
+        <select class="select-input" id="multi-mode-select">
+          <option value="ask">Ask every time (Direct or ZIP)</option>
+          <option value="direct">Direct files (.mp3 in folder)</option>
+          <option value="zip">ZIP Archive (.zip with browser download)</option>
+        </select>
+        <p class="setting-hint">Format used when downloading entire playlists or multiple selected songs.</p>
+
         <button class="btn-primary" id="save-settings" style="margin-top:1.5rem;width:100%">Save Settings</button>
       </div>
     </div>

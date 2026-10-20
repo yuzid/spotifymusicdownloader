@@ -7,10 +7,11 @@ A beautiful web app to download Spotify songs, albums, and playlists as high-qua
 - 🎵 **Songs** — Download any individual track
 - 💿 **Albums** — Download entire albums
 - 📋 **Playlists** — Download full playlists or pick individual songs
-- 🎨 **Cover Art & Metadata** — Automatically embedded (title, artist, album)
-- ⚡ **MP3 320kbps** — High quality audio
+- 📦 **Direct or ZIP Archive** — Choose between direct individual files or a packaged `.zip` archive with instant 1-click browser download
+- 🎨 **Cover Art & Metadata** — Automatically embedded (title, artist, album, duration)
+- ⚡ **MP3 320kbps** — High quality audio (FLAC, M4A, Opus also supported)
 - 📁 **Custom Output Folder** — Choose where files are saved
-- 🔄 **Real-time Progress** — Live download progress tracking
+- 🔄 **Real-time Progress** — Live download progress tracking with instant process cancellation
 - 📜 **Download History** — See all past downloads
 
 ## Quick Start

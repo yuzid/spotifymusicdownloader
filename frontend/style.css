@@ -645,6 +645,189 @@ body {
 .select-input { cursor: pointer; appearance: none; }
 .setting-hint { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.4rem; }
 
+/* ── Limit Banner ── */
+.limit-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  background: rgba(14, 165, 233, 0.08);
+  border: 1px solid rgba(14, 165, 233, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.82rem;
+  color: #bae6fd;
+}
+.limit-banner svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: #38bdf8;
+}
+.limit-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.limit-text strong {
+  color: #e0f2fe;
+  font-weight: 600;
+}
+.limit-text span {
+  color: rgba(224, 242, 254, 0.75);
+}
+
+/* ── Download Choice Modal ── */
+.download-choice-modal {
+  width: 520px;
+}
+.dl-choice-desc {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}
+.dl-choice-desc strong {
+  color: var(--green);
+}
+.dl-options-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+.dl-option-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.dl-option-card:hover {
+  background: var(--surface-hi);
+  border-color: var(--border-hi);
+}
+.dl-option-card.active {
+  background: rgba(29, 185, 84, 0.08);
+  border-color: var(--green);
+  box-shadow: 0 0 16px var(--green-glow);
+}
+.dl-option-card input[type="radio"] {
+  accent-color: var(--green);
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.dl-option-content {
+  flex: 1;
+}
+.dl-option-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+}
+.dl-option-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+.dl-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 100px;
+  background: rgba(255,255,255,0.08);
+  color: var(--text-muted);
+}
+.dl-badge.zip {
+  background: rgba(29, 185, 84, 0.2);
+  color: var(--green);
+}
+.dl-option-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.dl-remember-wrap {
+  margin-bottom: 1.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.checkbox-label input[type="checkbox"] {
+  accent-color: var(--green);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+.dl-choice-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+/* ── Job Status & ZIP Card Enhancements ── */
+.job-status-chip.zipping {
+  color: #38bdf8;
+  background: rgba(14, 165, 233, 0.15);
+  border: 1px solid rgba(14, 165, 233, 0.3);
+}
+.job-zip-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(29, 185, 84, 0.06);
+  border: 1px solid rgba(29, 185, 84, 0.2);
+  border-radius: 8px;
+}
+.btn-job-zip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--green);
+  color: #000;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 100px;
+  transition: all var(--transition);
+  box-shadow: 0 4px 12px rgba(29, 185, 84, 0.3);
+}
+.btn-job-zip:hover {
+  background: #1ed760;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(29, 185, 84, 0.45);
+}
+.btn-job-zip svg {
+  width: 14px;
+  height: 14px;
+}
+.zip-tag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #a7f3d0;
+}
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -663,3 +846,4 @@ body {
   .search-card { flex-direction: column; padding: 0.75rem; }
   .btn-fetch { width: 100%; justify-content: center; padding: 0.85rem; border-radius: 12px; }
 }
+
